@@ -46,15 +46,15 @@ export class CommandHealthChecker {
         }
       }
 
-      // 3. 用户手动自定义命令校验 (语法规则校验)
+      // 3. 用户手动自定义命令校验（不强制 / 开头，只要非空即可用）
       if (cmd.isCustom || cmd.category === 'custom') {
         const trimmed = cmd.command.trim();
-        if (!trimmed.startsWith('/') || trimmed.length <= 1 || /\s/.test(trimmed)) {
+        if (!trimmed) {
           brokenCount++;
           return {
             ...cmd,
             healthStatus: 'broken' as const,
-            healthReason: '命令语法非法: 必须以 / 开头且不能包含空格'
+            healthReason: '命令内容为空'
           };
         } else {
           healthyCount++;

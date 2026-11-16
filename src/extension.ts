@@ -99,19 +99,13 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(cleanInvalidCmd);
 
-  // 7. 注册命令: 手动添加自定义命令
+  // 7. 注册命令: 手动添加自定义命令（支持自由输入 /命令、@指令 或 常用快捷短语，不强制要求 / 开头）
   const addCustomCmd = vscode.commands.registerCommand('antigravity.slash.addCustom', async () => {
     const cmdInput = await vscode.window.showInputBox({
-      prompt: '请输入自定义斜杠命令 (必须以 / 开头，例如: /my-task)',
+      prompt: '请输入自定义命令或快捷指令 (例如: /my-task 或 常用提示词，不强制 / 开头)',
       validateInput: text => {
-        if (!text.startsWith('/')) {
-          return '命令必须以 / 开头';
-        }
-        if (text.trim().length <= 1) {
-          return '请输入完整的命令名';
-        }
-        if (/\s/.test(text.trim())) {
-          return '命令名称不能包含空格';
+        if (!text.trim()) {
+          return '命令或快捷指令内容不能为空';
         }
         return null;
       }
@@ -121,20 +115,22 @@ export async function activate(context: vscode.ExtensionContext) {
       return;
     }
 
+    const trimmedCmd = cmdInput.trim();
+    const defaultTitle = trimmedCmd.replace(/^\//, '').slice(0, 20);
     const titleInput = await vscode.window.showInputBox({
       prompt: '请输入命令简要中文标题 (例如: 我的自动化任务)',
-      value: cmdInput.replace('/', '')
+      value: defaultTitle
     });
 
     const descInput = await vscode.window.showInputBox({
       prompt: '请输入该命令的详细描述或说明',
-      value: '用户手动添加的自定义斜杠命令'
+      value: '用户手动添加的自定义快捷命令'
     });
 
     const newCmd: SlashCommandItem = {
-      id: `custom:${cmdInput.trim().replace('/', '')}_${Date.now()}`,
-      command: cmdInput.trim(),
-      title: titleInput?.trim() || cmdInput.trim(),
+      id: `custom:${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      command: trimmedCmd,
+      title: titleInput?.trim() || defaultTitle,
       description: descInput?.trim() || '',
       category: 'custom',
       healthStatus: 'healthy',

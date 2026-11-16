@@ -97,9 +97,19 @@ async function runTests() {
       updatedAt: Date.now()
     },
     {
-      id: 'custom:illegal',
-      command: 'illegal-no-slash',
-      title: '非法命令',
+      id: 'custom:free-text',
+      command: '@research 请帮我分析代码架构',
+      title: '自由自定义快捷指令',
+      description: '不带斜杠的自定义命令',
+      category: 'custom',
+      healthStatus: 'unknown',
+      isCustom: true,
+      updatedAt: Date.now()
+    },
+    {
+      id: 'custom:empty',
+      command: '   ',
+      title: '空白非法命令',
       description: '描述',
       category: 'custom',
       healthStatus: 'unknown',
@@ -115,21 +125,24 @@ async function runTests() {
     fs.unlinkSync(tempFilePath);
   }
 
-  assert.strictEqual(result.healthyCount, 2, '健康命令数量断言失败');
+  assert.strictEqual(result.healthyCount, 3, '健康命令数量断言失败');
   assert.strictEqual(result.brokenCount, 2, '失效命令数量断言失败');
 
   const validCmd = result.updated.find(c => c.id === 'skill:valid');
   assert.strictEqual(validCmd?.healthStatus, 'healthy');
 
+  const freeCustomCmd = result.updated.find(c => c.id === 'custom:free-text');
+  assert.strictEqual(freeCustomCmd?.healthStatus, 'healthy');
+
   const brokenCmd = result.updated.find(c => c.id === 'skill:broken');
   assert.strictEqual(brokenCmd?.healthStatus, 'broken');
   assert.ok(brokenCmd?.healthReason?.includes('物理源文件不存在'));
 
-  const illegalCmd = result.updated.find(c => c.id === 'custom:illegal');
+  const illegalCmd = result.updated.find(c => c.id === 'custom:empty');
   assert.strictEqual(illegalCmd?.healthStatus, 'broken');
-  assert.ok(illegalCmd?.healthReason?.includes('命令语法非法'));
+  assert.ok(illegalCmd?.healthReason?.includes('命令内容为空'));
 
-  console.log('  ✅ 健康度体检引擎测试通过：成功准确识别物理存在、物理缺失与非法语法！\n');
+  console.log('  ✅ 健康度体检引擎测试通过：成功识别物理存在、物理缺失、自由自定义指令与空白失效项！\n');
 
   // Test 3: 真实全局技能目录扫描测试 (兼容无本地 ~/.gemini 的 CI 环境)
   console.log('▶ [Test 3] 校验全局技能库扫描解析与中文提炼能力...');
