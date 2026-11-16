@@ -131,8 +131,21 @@ async function runTests() {
 
   console.log('  ✅ 健康度体检引擎测试通过：成功准确识别物理存在、物理缺失与非法语法！\n');
 
-  // Test 3: 真实全局技能目录扫描测试
-  console.log('▶ [Test 3] 校验真实机器环境的全局技能库扫描解析能力...');
+  // Test 3: 真实全局技能目录扫描测试 (兼容无本地 ~/.gemini 的 CI 环境)
+  console.log('▶ [Test 3] 校验全局技能库扫描解析与中文提炼能力...');
+  const os = require('os');
+  const globalSkillsDir = path.join(os.homedir(), '.gemini', 'config', 'skills');
+  let createdMockGlobal = false;
+  if (!fs.existsSync(globalSkillsDir)) {
+    createdMockGlobal = true;
+    fs.mkdirSync(path.join(globalSkillsDir, 'ci-mock-security-audit'), { recursive: true });
+    fs.writeFileSync(
+      path.join(globalSkillsDir, 'ci-mock-security-audit', 'SKILL.md'),
+      '---\nname: ci-mock-security-audit\ndescription: Security audit and vulnerability review.\n---\n',
+      'utf-8'
+    );
+  }
+
   const { CommandScanner } = require('../core/scanner');
   const realScanner = new CommandScanner();
   const scanResult: SlashCommandItem[] = await realScanner.scan({
@@ -141,9 +154,13 @@ async function runTests() {
     includeWorkspace: false
   });
 
+  if (createdMockGlobal) {
+    fs.rmSync(path.join(os.homedir(), '.gemini'), { recursive: true, force: true });
+  }
+
   assert.ok(scanResult.length > CORE_SLASH_COMMANDS.length, '未能成功扫描到全局技能命令');
   const skillCommands = scanResult.filter(c => c.category === 'skill');
-  console.log(`  ✅ 真实扫描成功！在当前系统中共发现并提取了 ${skillCommands.length} 项全局技能命令！`);
+  console.log(`  ✅ 扫描成功！共发现并提取了 ${skillCommands.length} 项全局技能命令！`);
   console.log(`  示例中文简短说明:`);
   for (const s of skillCommands.slice(0, 6)) {
     assert.ok(!s.title.startsWith('[技能]'), `仍存在未提炼中文的旧标题: ${s.title}`);

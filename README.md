@@ -1,6 +1,18 @@
 # Antigravity Slash Helper (斜杠命令助手)
 
+[![Build & Release VSIX](https://github.com/kikock/antigravity-slash-helper/actions/workflows/release-vsix.yml/badge.svg)](https://github.com/kikock/antigravty-slash-helper/actions/workflows/release-vsix.yml)
+[![Latest Release](https://img.shields.io/github/v/release/kikock/antigravity-slash-helper?label=%E4%B8%8B%E8%BD%BD%20VSIX%20%E5%AE%89%E8%A3%85%E5%8C%85&color=blue)](https://github.com/kikock/antigravity-slash-helper/releases/latest)
+
 > 专为 **Google Antigravity IDE** 及 VS Code 体系打造的核心斜杠命令管理、全量中文提炼与智能快捷触发扩展。
+
+---
+
+## 📦 直接下载安装（推荐）
+
+1. 前往本仓库右侧 **[Releases 最新版本页面](https://github.com/kikock/antigravity-slash-helper/releases/latest)**，直接下载 `antigravity-slash-helper-*.vsix` 安装包；
+2. 打开 **Antigravity IDE**，在左侧扩展面板右上角 `...` 菜单选择 **“从 VSIX 安装 (Install from VSIX...)”**，选中下载的 `.vsix` 文件；
+   *(或直接终端执行 `antigravity --install-extension antigravity-slash-helper-1.0.0.vsix`)*
+3. 重载窗口即可立即体验！
 
 ---
 
@@ -30,13 +42,13 @@
 
 ## ⌨️ 快捷键与操作指南
 
-| 操作 | 触发方式 | 说明 |
-| :--- | :--- | :--- |
-| **打开快捷命令浮层** | `Alt + /` (`Cmd + /`) 或点击状态栏 `⚡ /Commands` | 模糊搜索并直接触发写入 |
-| **加入 Chat 输入框** | 侧边栏条目 **双击** 或悬停点击 **`💬`** 按钮 | 自动聚焦 Chat 并加载命令 |
-| **查看完整功能说明** | 鼠标悬停在侧边栏命令条目上 | 展示中文摘要、原始描述与物理路径 |
-| **全量重扫 / 清理 / 新增** | 侧边栏视图右上角工具栏按钮 | 一键同步最新全局技能、清理失效项或手动新增 |
-| **删除单条命令** | 右键命令条目 → **删除此命令** | 二次弹窗确认后移除 |
+| 操作                       | 触发方式                                          | 说明                                       |
+| :------------------------- | :------------------------------------------------ | :----------------------------------------- |
+| **打开快捷命令浮层**       | `Alt + /` (`Cmd + /`) 或点击状态栏 `⚡ /Commands` | 模糊搜索并直接触发写入                     |
+| **加入 Chat 输入框**       | 侧边栏条目 **双击** 或悬停点击 **`💬`** 按钮      | 自动聚焦 Chat 并加载命令                   |
+| **查看完整功能说明**       | 鼠标悬停在侧边栏命令条目上                        | 展示中文摘要、原始描述与物理路径           |
+| **全量重扫 / 清理 / 新增** | 侧边栏视图右上角工具栏按钮                        | 一键同步最新全局技能、清理失效项或手动新增 |
+| **删除单条命令**           | 右键命令条目 → **删除此命令**                     | 二次弹窗确认后移除                         |
 
 > [!TIP]
 > **关于 Windows 管理员权限提示**：如果您以“以管理员身份”运行 Antigravity IDE，Windows UIPI 安全机制可能会拦截子进程模拟按键（状态栏会提示降级为纯文本写入）。如需自动加载为 `[<>]` 图标芯片，建议取消 IDE 兼容性属性中的“以管理员身份运行此程序”，或将扩展目录下的 `bin/SendSlash.exe` 加入安全软件白名单。
@@ -67,9 +79,10 @@ antigravity --install-extension antigravity-slash-helper-1.0.0.vsix --force
 ## 📝 更新日志 (Changelog)
 
 ### v1.0.0 (2026-11-16)
-* 🎉 初始正式版发布，完整适配 Google Antigravity IDE。
-* ✨ 实现快捷键 `Alt + /` QuickPick 模糊搜索面板与侧边栏分类树形视图。
-* ✨ 实现双击（400ms 识别）与行内 `💬` 按钮加入输入框，将删除操作隔离至右键菜单防误触。
-* ✨ 打通 `antigravity.toggleChatFocus` 焦点落位与无窗口 `SendSlash.exe`（自动 IME 切换保护），支持原生 `/` 列表触发与结构化芯片加载，并集成 `antigravity.addContext` 容灾降级。
-* ✨ 全面打通全局、内置及插件技能目录扫描（实测支持 440+ 项命令），实现 100% 精简中文说明提炼。
-* ✅ 配备物理依赖健康度体检、失效标红与一键清理功能。
+
+- 🎉 初始正式版发布，完整适配 Google Antigravity IDE。
+- ✨ 实现快捷键 `Alt + /` QuickPick 模糊搜索面板与侧边栏分类树形视图。
+- ✨ 实现双击（400ms 识别）与行内 `💬` 按钮加入输入框，将删除操作隔离至右键菜单防误触。
+- ✨ 打通 `antigravity.toggleChatFocus` 焦点落位与无窗口 `SendSlash.exe`（自动 IME 切换保护），支持原生 `/` 列表触发与结构化芯片加载，并集成 `antigravity.addContext` 容灾降级。
+- ✨ 全面打通全局、内置及插件技能目录扫描（实测支持 440+ 项命令），实现 100% 精简中文说明提炼。
+- ✅ 配备物理依赖健康度体检、失效标红与一键清理功能。
