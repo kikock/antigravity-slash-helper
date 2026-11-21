@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as vscode from 'vscode';
-import { SlashCommandItem, ScanOptions } from '../types';
+import { SlashCommandItem, ScanOptions, CommandScope } from '../types';
 import { summarizeSkillDescription } from './skillTranslator';
 
 /**
@@ -118,17 +118,18 @@ export class CommandScanner {
     const results: SlashCommandItem[] = [];
     const now = Date.now();
 
-    // 1. 扫描官方核心命令白名单
+    // 1. 扫描官方核心命令白名单 (归属全局命令集)
     if (options.includeCore !== false) {
       for (const coreCmd of CORE_SLASH_COMMANDS) {
         results.push({
           ...coreCmd,
+          scope: 'global',
           updatedAt: now
         });
       }
     }
 
-    // 2. 扫描全量全局技能与已安装插件技能目录
+    // 2. 扫描全量全局技能与已安装插件技能目录 (归属全局命令集)
     if (options.includeGlobalSkills !== false) {
       const home = os.homedir();
       const globalSkillRoots = [
@@ -161,20 +162,22 @@ export class CommandScanner {
       }
 
       for (const dir of globalSkillRoots) {
-        const items = await this.scanSkillsDirectory(dir);
+        const items = await this.scanSkillsDirectory(dir, 'global');
         results.push(...items);
       }
     }
 
-    // 3. 扫描当前工作区 (.agents/skills, .agent/skills, GEMINI.md, rules.md)
+    // 3. 扫描当前工作区 (.agents/skills, .agent/skills, GEMINI.md, rules.md) (归属项目命令集)
     if (options.includeWorkspace !== false && vscode.workspace.workspaceFolders) {
       for (const folder of vscode.workspace.workspaceFolders) {
         const rootPath = folder.uri.fsPath;
 
-        // 扫描工作区自定义技能
-        const agentSkills = await this.scanSkillsDirectory(path.join(rootPath, '.agents', 'skills'));
-        const dotAgentSkills = await this.scanSkillsDirectory(path.join(rootPath, '.agent', 'skills'));
-        results.push(...agentSkills, ...dotAgentSkills);
+        // 递归发现工作区根目录及子项目目录中的 .agents/skills 与 .agent/skills (最大深度 3，自动剪枝重型目录)
+        const workspaceSkillDirs = await this.findWorkspaceSkillDirs(rootPath, 3);
+        for (const skillDir of workspaceSkillDirs) {
+          const wsSkills = await this.scanSkillsDirectory(skillDir, 'workspace');
+          results.push(...wsSkills);
+        }
 
         // 扫描工作区规则
         const rulesCommands = await this.scanWorkspaceRules(rootPath);
@@ -182,11 +185,12 @@ export class CommandScanner {
       }
     }
 
-    // 4. 按命令字去重（先扫描到的高优先级项保留，工作区同名覆盖全局）
+    // 4. 按作用域 + 命令字去重（全局命令集与项目命令集各自独立去重，互不覆盖）
     const deduped = new Map<string, SlashCommandItem>();
     for (const item of results) {
-      if (!deduped.has(item.command)) {
-        deduped.set(item.command, item);
+      const scopeKey = `${item.scope ?? 'global'}:${item.command}`;
+      if (!deduped.has(scopeKey)) {
+        deduped.set(scopeKey, item);
       }
     }
 
@@ -194,9 +198,76 @@ export class CommandScanner {
   }
 
   /**
+   * 在工作区根目录及浅层子目录中查找 .agents/skills 与 .agent/skills 目录
+   * 自动跳过 node_modules / .git 等重型目录以保证扫描速度
+   */
+  private async findWorkspaceSkillDirs(rootPath: string, maxDepth: number): Promise<string[]> {
+    const skillDirs: string[] = [];
+    const ignoredDirs = new Set([
+      'node_modules',
+      '.git',
+      '.svn',
+      '.hg',
+      'out',
+      'dist',
+      'build',
+      'target',
+      '.venv',
+      'venv',
+      '__pycache__',
+      '.idea',
+      '.vscode',
+      '.gradle',
+      '.next',
+      '.nuxt'
+    ]);
+
+    const walk = async (currentDir: string, depth: number): Promise<void> => {
+      if (depth > maxDepth) {
+        return;
+      }
+
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) {
+          continue;
+        }
+
+        const name = entry.name;
+        const fullPath = path.join(currentDir, name);
+
+        if (name === '.agents' || name === '.agent') {
+          const candidateSkills = path.join(fullPath, 'skills');
+          if (fs.existsSync(candidateSkills)) {
+            skillDirs.push(candidateSkills);
+          }
+          continue;
+        }
+
+        if (ignoredDirs.has(name) || name.startsWith('.')) {
+          continue;
+        }
+
+        if (depth < maxDepth) {
+          await walk(fullPath, depth + 1);
+        }
+      }
+    };
+
+    await walk(rootPath, 0);
+    return skillDirs;
+  }
+
+  /**
    * 递归扫描指定 skills 目录并提取元数据
    */
-  private async scanSkillsDirectory(skillsDir: string): Promise<SlashCommandItem[]> {
+  private async scanSkillsDirectory(skillsDir: string, scope: CommandScope): Promise<SlashCommandItem[]> {
     const list: SlashCommandItem[] = [];
     if (!fs.existsSync(skillsDir)) {
       return list;
@@ -214,11 +285,12 @@ export class CommandScanner {
           const meta = await this.parseSkillFrontmatter(skillPath, entry.name);
           const { shortTitle, fullDescription } = summarizeSkillDescription(meta.name, meta.description);
           list.push({
-            id: `skill:${meta.name}`,
+            id: `skill:${scope}:${meta.name}`,
             command: `/${meta.name}`,
             title: shortTitle,
             description: fullDescription,
             category: 'skill',
+            scope,
             sourcePath: skillPath,
             healthStatus: 'healthy',
             updatedAt: Date.now()
@@ -302,6 +374,7 @@ export class CommandScanner {
           title: `[规则] ${item.title}`,
           description: `加载并遵循 ${item.filename} 项目级工程与行为约束规则`,
           category: 'rule',
+          scope: 'workspace',
           sourcePath: filePath,
           healthStatus: 'healthy',
           updatedAt: Date.now()

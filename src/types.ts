@@ -12,6 +12,13 @@
 export type CommandCategory = 'core' | 'skill' | 'rule' | 'custom';
 
 /**
+ * 命令作用域枚举
+ * - global: 全局命令集 (官方核心命令、全局技能库、用户全局自定义命令)
+ * - workspace: 当前项目命令集 (当前工作区 .agents/skills, .agent/skills 与项目规则文件)
+ */
+export type CommandScope = 'global' | 'workspace';
+
+/**
  * 命令物理依赖与健康度状态
  * - healthy: 健康可用 (文件存在且语法无误)
  * - broken: 失效不可用 (物理源文件已丢失或不存在)
@@ -33,6 +40,8 @@ export interface SlashCommandItem {
   description: string;
   /** 命令所属分类 */
   category: CommandCategory;
+  /** 命令所属作用域：全局 (global) 或 当前项目 (workspace) */
+  scope?: CommandScope;
   /** 物理文件依赖路径 (用于健康度真实性校验) */
   sourcePath?: string;
   /** 当前健康度状态 */

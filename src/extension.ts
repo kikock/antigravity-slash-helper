@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
-import { CommandStorage } from './core/storage';
+import { CommandStorage, resolveCommandScope } from './core/storage';
 import { CommandScanner } from './core/scanner';
 import { CommandHealthChecker } from './core/checker';
 import { ChatInputInjector } from './core/injector';
 import { QuickPickPalette } from './views/quickPickPalette';
 import { CommandTreeProvider, SlashTreeItem } from './views/commandTreeProvider';
-import { SlashCommandItem } from './types';
+import { CommandScope, SlashCommandItem } from './types';
 
 export async function activate(context: vscode.ExtensionContext) {
   const storage = new CommandStorage(context);
@@ -57,12 +57,14 @@ export async function activate(context: vscode.ExtensionContext) {
         progress.report({ increment: 50, message: '校验物理依赖健康状态...' });
         const { updated, healthyCount, brokenCount } = checker.check(scanned);
 
-        progress.report({ increment: 80, message: '合并入本地存储...' });
-        await storage.mergeCommands(updated);
+        progress.report({ increment: 80, message: '分别写入全局与项目存储...' });
+        const merged = await storage.mergeCommands(updated);
         treeProvider.refresh();
 
+        const globalCount = merged.filter(c => resolveCommandScope(c) === 'global').length;
+        const workspaceCount = merged.filter(c => resolveCommandScope(c) === 'workspace').length;
         vscode.window.showInformationMessage(
-          `扫描完成！共发现 ${scanned.length} 项命令 (🟢 正常: ${healthyCount}, 🔴 失效: ${brokenCount})`
+          `扫描完成！全局命令 ${globalCount} 项，项目命令 ${workspaceCount} 项 (🟢 正常: ${healthyCount}, 🔴 失效: ${brokenCount})`
         );
       }
     );
@@ -127,12 +129,28 @@ export async function activate(context: vscode.ExtensionContext) {
       value: '用户手动添加的自定义快捷命令'
     });
 
+    let targetScope: CommandScope = 'global';
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+      const scopePick = await vscode.window.showQuickPick(
+        [
+          { label: '🌐 全局命令集 (Global)', description: '在所有项目中均可使用', scope: 'global' as CommandScope },
+          { label: '📁 当前项目命令集 (Project)', description: '仅在当前工作区中生效', scope: 'workspace' as CommandScope }
+        ],
+        { placeHolder: '请选择该自定义命令的所属作用域' }
+      );
+      if (!scopePick) {
+        return;
+      }
+      targetScope = scopePick.scope;
+    }
+
     const newCmd: SlashCommandItem = {
-      id: `custom:${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: `custom:${targetScope}:${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       command: trimmedCmd,
       title: titleInput?.trim() || defaultTitle,
       description: descInput?.trim() || '',
       category: 'custom',
+      scope: targetScope,
       healthStatus: 'healthy',
       isCustom: true,
       updatedAt: Date.now()
@@ -140,38 +158,46 @@ export async function activate(context: vscode.ExtensionContext) {
 
     await storage.upsertCommand(newCmd);
     treeProvider.refresh();
-    vscode.window.showInformationMessage(`已成功添加自定义命令: ${newCmd.command}`);
+    const scopeText = targetScope === 'workspace' ? '项目' : '全局';
+    vscode.window.showInformationMessage(`已成功添加${scopeText}自定义命令: ${newCmd.command}`);
   });
   context.subscriptions.push(addCustomCmd);
 
   // 8. 注册命令: 删除单条命令
   const deleteCmd = vscode.commands.registerCommand('antigravity.slash.deleteCommand', async (item?: SlashTreeItem | SlashCommandItem) => {
-    let targetCommand = resolveCommandText(item);
+    const targetItem = resolveCommandItem(item);
+    let targetIdOrCommand = targetItem?.id ?? resolveCommandText(item);
+    let displayLabel = targetItem?.command ?? targetIdOrCommand;
 
-    if (!targetCommand) {
+    if (!targetIdOrCommand) {
       const all = storage.getAllCommands();
-      const picks = all.map(c => ({
-        label: c.command,
-        description: c.title,
-        detail: c.description,
-        cmdText: c.command
-      }));
+      const picks = all.map(c => {
+        const scopeTag = resolveCommandScope(c) === 'workspace' ? '[项目]' : '[全局]';
+        return {
+          label: c.command,
+          description: `${scopeTag} ${c.title}`,
+          detail: c.description,
+          cmdId: c.id,
+          cmdText: c.command
+        };
+      });
       const pick = await vscode.window.showQuickPick(picks, { placeHolder: '选择要删除的斜杠命令' });
       if (pick) {
-        targetCommand = pick.cmdText;
+        targetIdOrCommand = pick.cmdId;
+        displayLabel = pick.cmdText;
       }
     }
 
-    if (targetCommand) {
+    if (targetIdOrCommand) {
       const confirm = await vscode.window.showWarningMessage(
-        `确定要从列表中删除命令 [${targetCommand}] 吗？`,
+        `确定要从列表中删除命令 [${displayLabel}] 吗？`,
         { modal: true },
         '确认删除'
       );
       if (confirm === '确认删除') {
-        await storage.removeCommand(targetCommand);
+        await storage.removeCommand(targetIdOrCommand);
         treeProvider.refresh();
-        vscode.window.showInformationMessage(`已删除命令: ${targetCommand}`);
+        vscode.window.showInformationMessage(`已删除命令: ${displayLabel}`);
       }
     }
   });
@@ -214,18 +240,59 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(itemClickCmd);
 
-  // 10. 首次启动或升级后执行静默预扫（若尚无内置/扫描命令）
-  const existing = storage.getAllCommands();
-  if (existing.filter(c => !c.isCustom).length === 0) {
-    scanner.scan().then(async scanned => {
+  // 10. 首次启动、升级或打开新工作区时执行静默预扫
+  const existingGlobal = storage.getGlobalCommands();
+  const existingWorkspace = storage.getWorkspaceCommands();
+  const hasWorkspace = Boolean(vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0);
+  const needGlobalScan = existingGlobal.filter(c => !c.isCustom).length === 0;
+  const needWorkspaceScan = hasWorkspace && existingWorkspace.filter(c => !c.isCustom).length === 0;
+
+  if (needGlobalScan || needWorkspaceScan) {
+    scanner
+      .scan({
+        includeCore: needGlobalScan,
+        includeGlobalSkills: needGlobalScan,
+        includeWorkspace: needWorkspaceScan
+      })
+      .then(async scanned => {
+        const { updated } = checker.check(scanned);
+        await storage.mergeCommands(updated);
+        treeProvider.refresh();
+      });
+  }
+
+  // 11. 监听工作区文件夹变化，自动同步项目命令集
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(async () => {
+      const scanned = await scanner.scan({
+        includeCore: false,
+        includeGlobalSkills: false,
+        includeWorkspace: true
+      });
       const { updated } = checker.check(scanned);
       await storage.mergeCommands(updated);
       treeProvider.refresh();
-    });
-  }
+    })
+  );
 }
 
 export function deactivate() {}
+
+/**
+ * 从调用来源中提取完整的 SlashCommandItem（若可用）
+ */
+function resolveCommandItem(item?: unknown): SlashCommandItem | undefined {
+  if (item && typeof item === 'object') {
+    const obj = item as Record<string, unknown>;
+    if (obj.commandItem && typeof obj.commandItem === 'object') {
+      return obj.commandItem as SlashCommandItem;
+    }
+    if (typeof obj.id === 'string' && typeof obj.command === 'string') {
+      return item as SlashCommandItem;
+    }
+  }
+  return undefined;
+}
 
 /**
  * 从不同调用来源（TreeItem / SlashCommandItem / 纯字符串）中安全提取斜杠命令文本

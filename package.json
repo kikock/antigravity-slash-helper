@@ -2,7 +2,7 @@
   "name": "antigravity-slash-helper",
   "displayName": "Antigravity Slash Helper",
   "description": "Google Antigravity IDE 核心斜杠命令选择菜单、自动扫描与健康度管理助手",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "antigravity-community",
   "license": "MIT",
   "engines": {

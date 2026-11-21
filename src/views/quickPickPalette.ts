@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import { SlashCommandItem } from '../types';
 import { ChatInputInjector } from '../core/injector';
+import { resolveCommandScope } from '../core/storage';
 
 interface CommandQuickPickItem extends vscode.QuickPickItem {
-  commandItem: SlashCommandItem;
+  commandItem?: SlashCommandItem;
 }
 
 /**
@@ -11,7 +12,7 @@ interface CommandQuickPickItem extends vscode.QuickPickItem {
  */
 export class QuickPickPalette {
   /**
-   * 打开命令选择面板
+   * 打开命令选择面板（按「项目命令集」与「全局命令集」分组呈现）
    */
   public static async show(commands: SlashCommandItem[]): Promise<void> {
     if (commands.length === 0) {
@@ -24,34 +25,32 @@ export class QuickPickPalette {
     quickPick.matchOnDescription = true;
     quickPick.matchOnDetail = true;
 
-    // 分类并构建 QuickPickItem
-    const items: CommandQuickPickItem[] = commands.map(cmd => {
-      let icon = '$(zap)';
-      if (cmd.category === 'core') {
-        icon = '$(star-full)';
-      } else if (cmd.category === 'skill') {
-        icon = '$(tools)';
-      } else if (cmd.category === 'rule') {
-        icon = '$(book)';
-      } else if (cmd.category === 'custom') {
-        icon = '$(edit)';
-      }
+    const workspaceCommands = commands.filter(cmd => resolveCommandScope(cmd) === 'workspace');
+    const globalCommands = commands.filter(cmd => resolveCommandScope(cmd) === 'global');
 
-      const statusBadge = cmd.healthStatus === 'broken' ? ' 🔴 [失效]' : '';
+    const items: CommandQuickPickItem[] = [];
 
-      return {
-        label: `${icon} ${cmd.command}${statusBadge}`,
-        description: cmd.title,
-        detail: cmd.healthReason ? `⚠️ ${cmd.healthReason}` : cmd.description,
-        commandItem: cmd
-      };
-    });
+    if (workspaceCommands.length > 0) {
+      items.push({
+        label: `📁 项目命令集 (${workspaceCommands.length})`,
+        kind: vscode.QuickPickItemKind.Separator
+      });
+      items.push(...workspaceCommands.map(cmd => QuickPickPalette.toQuickPickItem(cmd)));
+    }
+
+    if (globalCommands.length > 0) {
+      items.push({
+        label: `🌐 全局命令集 (${globalCommands.length})`,
+        kind: vscode.QuickPickItemKind.Separator
+      });
+      items.push(...globalCommands.map(cmd => QuickPickPalette.toQuickPickItem(cmd)));
+    }
 
     quickPick.items = items;
 
     quickPick.onDidAccept(async () => {
       const selected = quickPick.selectedItems[0];
-      if (selected) {
+      if (selected && selected.commandItem) {
         quickPick.hide();
         const cmd = selected.commandItem;
         const selectAutocomplete = cmd.category === 'core' || cmd.category === 'skill';
@@ -65,5 +64,28 @@ export class QuickPickPalette {
 
     quickPick.show();
   }
-}
 
+  private static toQuickPickItem(cmd: SlashCommandItem): CommandQuickPickItem {
+    const scope = resolveCommandScope(cmd);
+    let icon = '$(zap)';
+    if (cmd.category === 'core') {
+      icon = '$(star-full)';
+    } else if (cmd.category === 'skill') {
+      icon = scope === 'workspace' ? '$(extensions)' : '$(tools)';
+    } else if (cmd.category === 'rule') {
+      icon = '$(book)';
+    } else if (cmd.category === 'custom') {
+      icon = '$(edit)';
+    }
+
+    const statusBadge = cmd.healthStatus === 'broken' ? ' 🔴 [失效]' : '';
+    const scopeTag = scope === 'workspace' ? '[项目]' : '[全局]';
+
+    return {
+      label: `${icon} ${cmd.command}${statusBadge}`,
+      description: `${scopeTag} ${cmd.title}`,
+      detail: cmd.healthReason ? `⚠️ ${cmd.healthReason}` : cmd.description,
+      commandItem: cmd
+    };
+  }
+}

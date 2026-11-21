@@ -78,6 +78,13 @@ antigravity --install-extension antigravity-slash-helper-1.0.0.vsix --force
 
 ## 📝 更新日志 (Changelog)
 
+### v1.1.0 (2026-11-21)
+
+- ✨ **全局与项目命令集分离**：新增 `scope` 作用域隔离，将全局命令（`globalState`）与当前项目命令（`workspaceState`）物理隔离存储，彻底杜绝跨项目命令污染。
+- ✨ **侧边栏与快捷菜单分组**：侧边栏拆分为 `📁 项目命令集 (Project)` 与 `🌐 全局命令集 (Global)` 两级视图；`Alt + /` 快捷面板使用原生分隔符优先置顶展示项目命令。
+- ✨ **工作区子目录技能递归扫描**：支持自动发现工作区浅层子项目目录（如 `01_github_code/.agents/skills/`）下的 `SKILL.md` 技能，并自动剪枝重型目录保证秒级扫描体验。
+- ✨ **精确作用域管理**：自定义命令支持选择归属全局或当前项目；删除操作按 `id` 精确匹配，避免误删另一作用域同名命令。
+
 ### v1.0.0 (2026-11-16)
 
 - 🎉 初始正式版发布，完整适配 Google Antigravity IDE。

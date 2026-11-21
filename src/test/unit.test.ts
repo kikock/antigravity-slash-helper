@@ -1,11 +1,12 @@
 // 注入 vscode 模块轻量测试 Mock，允许脱离 Electron 宿主运行纯 Node 单元测试
 const executedCommands: Array<{ cmd: string; args: unknown[] }> = [];
+const mockWorkspaceFolders: Array<{ uri: { fsPath: string } }> = [];
 const Module = require('module');
 const originalRequire = Module.prototype.require;
 Module.prototype.require = function (modulePath: string) {
   if (modulePath === 'vscode') {
     return {
-      workspace: { workspaceFolders: [] },
+      workspace: { workspaceFolders: mockWorkspaceFolders },
       window: {
         showInformationMessage: () => {},
         showWarningMessage: () => {},
@@ -190,6 +191,77 @@ async function runTests() {
   assert.strictEqual(injected, true, '注入返回值必须为 true');
   assert.strictEqual(executedCommands[0].cmd, 'antigravity.toggleChatFocus', '第一步必须弹出并聚焦 Chat 输入框');
   console.log('  ✅ ChatInputInjector 链路测试通过：已验证面板弹出聚焦及容灾降级闭环！\n');
+
+  // Test 5: 全局命令集与项目命令集分离（扫描去重隔离 + 存储物理隔离 + 精确删除）
+  console.log('▶ [Test 5] 校验全局命令集与项目命令集分离及存储隔离...');
+  const tempWsDir = path.join(__dirname, 'temp_mock_workspace');
+  const tempWsSkillDir = path.join(tempWsDir, '.agent', 'skills', 'plan');
+  const tempSubWsSkillDir = path.join(tempWsDir, '01_github_code', '.agents', 'skills', 'github-projects-indexer');
+  fs.mkdirSync(tempWsSkillDir, { recursive: true });
+  fs.mkdirSync(tempSubWsSkillDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(tempWsSkillDir, 'SKILL.md'),
+    '---\nname: plan\ndescription: Project-specific planning workflow.\n---\n',
+    'utf-8'
+  );
+  fs.writeFileSync(
+    path.join(tempSubWsSkillDir, 'SKILL.md'),
+    '---\nname: github-projects-indexer\ndescription: 扫描下级所有项目文件夹的 README.md 文档，提炼项目核心功能。\n---\n',
+    'utf-8'
+  );
+  fs.writeFileSync(path.join(tempWsDir, 'rules.md'), '# Project Rules\n', 'utf-8');
+
+  mockWorkspaceFolders.push({ uri: { fsPath: tempWsDir } });
+  const separatedScan: SlashCommandItem[] = await realScanner.scan({
+    includeCore: true,
+    includeGlobalSkills: false,
+    includeWorkspace: true
+  });
+  mockWorkspaceFolders.length = 0;
+
+  const globalPlan = separatedScan.find(c => c.command === '/plan' && c.scope === 'global');
+  const projectPlan = separatedScan.find(c => c.command === '/plan' && c.scope === 'workspace');
+  const subProjectSkill = separatedScan.find(c => c.command === '/github-projects-indexer' && c.scope === 'workspace');
+  const projectRule = separatedScan.find(c => c.command === '/rules' && c.scope === 'workspace');
+
+  assert.ok(globalPlan, '全局核心 /plan 命令应保留');
+  assert.ok(projectPlan, '项目级同名 /plan 技能应独立保留而不被全局覆盖');
+  assert.ok(subProjectSkill, '工作区子目录 .agents/skills 下的项目技能应被扫描到');
+  assert.notStrictEqual(globalPlan.id, projectPlan.id, '全局与项目同名命令 id 必须不同');
+  assert.ok(projectRule && projectRule.scope === 'workspace', '项目规则应归属 workspace 作用域');
+
+  const { CommandStorage } = require('../core/storage');
+  const globalStoreMap = new Map<string, unknown>();
+  const workspaceStoreMap = new Map<string, unknown>();
+  const mockContext = {
+    globalState: {
+      get: (k: string) => globalStoreMap.get(k),
+      update: async (k: string, v: unknown) => { globalStoreMap.set(k, v); }
+    },
+    workspaceState: {
+      get: (k: string) => workspaceStoreMap.get(k),
+      update: async (k: string, v: unknown) => { workspaceStoreMap.set(k, v); }
+    }
+  };
+
+  mockWorkspaceFolders.push({ uri: { fsPath: tempWsDir } });
+  const storage = new CommandStorage(mockContext);
+  await storage.mergeCommands(separatedScan);
+
+  const storedGlobal = storage.getGlobalCommands();
+  const storedWorkspace = storage.getWorkspaceCommands();
+  assert.ok(storedGlobal.every((c: SlashCommandItem) => c.scope === 'global'), '全局存储中不应混入项目命令');
+  assert.ok(storedWorkspace.every((c: SlashCommandItem) => c.scope === 'workspace'), '项目存储中不应混入全局命令');
+  assert.ok(storedWorkspace.some((c: SlashCommandItem) => c.id === projectPlan.id), '项目存储应包含项目技能');
+
+  // 按 id 精确删除项目 /plan，不应误删全局 /plan
+  await storage.removeCommand(projectPlan.id);
+  assert.ok(!storage.getWorkspaceCommands().some((c: SlashCommandItem) => c.id === projectPlan.id), '项目 /plan 应被删除');
+  assert.ok(storage.getGlobalCommands().some((c: SlashCommandItem) => c.id === globalPlan.id), '全局 /plan 不应受影响');
+
+  mockWorkspaceFolders.length = 0;
+  fs.rmSync(tempWsDir, { recursive: true, force: true });
+  console.log('  ✅ 全局与项目命令集分离测试通过：扫描、隔离存储与精确删除全部符合预期！\n');
 
   console.log('🎉 所有自动化单元测试执行完毕，全部断言 PASS！');
 }
